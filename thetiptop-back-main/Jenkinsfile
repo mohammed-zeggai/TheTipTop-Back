@@ -1,0 +1,61 @@
+def ENV_NAME = ""
+def ENV_PORT = 0
+
+pipeline {
+    agent any
+
+    stages {
+        stage('Code Quality SonarQube') {
+            steps {
+                sh "sonar-scanner"
+            }
+        }
+        stage("Environment Variables") {
+            steps {
+                script {
+                    def branchName = scm.branches[0].name
+                    echo "Branch Name: ${branchName}"
+
+                    if (branchName == "*/main") {
+                        ENV_NAME = "prod"
+                        ENV_PORT = 5000
+                    } else if (branchName == "*/release") {
+                        ENV_NAME = "preprod"
+                        ENV_PORT = 5001
+                    } else {
+                        ENV_NAME = 'develop'
+                        ENV_PORT = 5002
+                    }
+                }
+            }
+        }
+        stage("Build Custom NodeJS image") {
+            steps {
+                script {
+                    sh "docker build --build-arg NODE_ENV='$ENV_NAME' -t groupe7archiweb/thetiptop-back-'$ENV_NAME'-nodejs-image ."
+                }
+            }
+        }
+        stage("Stop NopdeJS Container") {
+            steps {
+                script {
+                    sh "docker rm -f thetiptop-back-'$ENV_NAME'"
+                }
+            }
+        }
+        stage("Deploy NodeJS Container") {
+            steps {
+                script {
+                    sh "docker run --rm -p '$ENV_PORT':5000 --network thetiptop-network --name thetiptop-back-'$ENV_NAME' -d groupe7archiweb/thetiptop-back-'$ENV_NAME'-nodejs-image"
+                }
+            }
+        }
+        stage("NodJS Unit Testing") {
+            steps {
+                script {
+                    sh "docker exec -i thetiptop-back-'$ENV_NAME' sh -c './test.sh'"
+                }
+            }
+        }
+    }
+}
